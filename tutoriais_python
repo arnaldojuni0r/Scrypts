@@ -1,0 +1,8 @@
+Crie um ambiente virtual:
+python3 -m venv myenv
+
+
+Lembre-se de ativar o ambiente virtual sempre que você quiser rodar o script ou instalar novos pacotes:
+
+source myenv/bin/activate
+deactivate
