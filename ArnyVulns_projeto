@@ -1,0 +1,259 @@
+import scapy.all as scapy
+import nmap
+import socket
+import subprocess
+from fpdf import FPDF
+from tqdm import tqdm
+import logging
+import datetime  # Adicionado para manipulação de datas
+
+# Configuração do log
+logging.basicConfig(filename='scan_rede.log', level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+def get_mac(ip):
+    arp_request = scapy.ARP(pdst=ip)
+    broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
+    arp_request_broadcast = broadcast / arp_request
+    answered_list = scapy.srp(arp_request_broadcast, timeout=1, verbose=False)[0]
+    return answered_list[0][1].hwsrc if answered_list else None
+
+def scan_network(ip_range):
+    logging.info(f"Varredura de rede iniciada para a faixa: {ip_range}")
+    arp_request = scapy.ARP(pdst=ip_range)
+    broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
+    arp_request_broadcast = broadcast / arp_request
+    answered_list = scapy.srp(arp_request_broadcast, timeout=1, verbose=False)[0]
+    clients = []
+
+    for element in answered_list:
+        client_dict = {'ip': element[1].psrc, 'mac': element[1].hwsrc}
+        clients.append(client_dict)
+
+    logging.info(f"Varredura de rede concluída. {len(clients)} hosts encontrados.")
+    return clients
+
+def get_open_ports_and_os(ip):
+    nm = nmap.PortScanner()
+    try:
+        nm.scan(ip, '1-1024', arguments='-O')
+        open_ports = []
+        os_info = None
+        if ip in nm.all_hosts():
+            for proto in nm[ip].all_protocols():
+                lport = nm[ip][proto].keys()
+                for port in lport:
+                    if nm[ip][proto][port]['state'] == 'open':
+                        open_ports.append(port)
+            if 'osclass' in nm[ip]:
+                os_info = nm[ip]['osclass']
+            elif 'osmatch' in nm[ip]:
+                os_info = nm[ip]['osmatch'][0] if len(nm[ip]['osmatch']) > 0 else None
+        return open_ports, os_info
+    except Exception as e:
+        logging.error(f"Erro ao escanear portas e sistema operacional no IP {ip}: {e}")
+        return [], None
+
+def scan_vulnerabilities(ip):
+    nm = nmap.PortScanner()
+    try:
+        nm.scan(ip, arguments='--script vuln')
+        vuln_info = {}
+        if ip in nm.all_hosts():
+            for proto in nm[ip].all_protocols():
+                for port in nm[ip][proto]:
+                    if 'script' in nm[ip][proto][port]:
+                        vuln_info[port] = nm[ip][proto][port]['script']
+        return vuln_info
+    except Exception as e:
+        logging.error(f"Erro ao escanear vulnerabilidades no IP {ip}: {e}")
+        return {}
+
+def get_hostname(ip):
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except socket.herror:
+        return None
+
+def get_users():
+    try:
+        output = subprocess.check_output("who", shell=True).decode()
+        return output.strip().split("\n")
+    except subprocess.CalledProcessError:
+        return []
+
+class PDF(FPDF):
+    def __init__(self, execution_time, executor_name, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.execution_time = execution_time
+        self.executor_name = executor_name
+
+    def header(self):
+        self.set_font("Arial", 'B', 12)
+        self.cell(0, 10, "Relatório de Scanner de Rede", 0, 1, 'C')
+        self.cell(0, 10, f"Data e Hora do Scan: {self.execution_time}", 0, 1, 'C')
+        self.cell(0, 10, f"Tempo de Execução: {self.execution_time}", 0, 1, 'C')
+        self.cell(0, 10, f"Executor: {self.executor_name}", 0, 1, 'C')
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Arial", 'I', 8)
+        self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
+
+def generate_pdf_report(clients, vulnerabilities, sede, rede, ip_range, execution_time, executor_name):
+    pdf = PDF(execution_time, executor_name)
+    pdf.add_page()
+
+    # Title and header information
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "Relatório de Scanner de Rede", 0, 1, 'C')
+    pdf.ln(10)
+
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, f"Sede: {sede}", 0, 1, 'L')
+    pdf.cell(0, 10, f"Rede: {rede}", 0, 1, 'L')
+    pdf.cell(0, 10, f"Faixa de IP: {ip_range}", 0, 1, 'L')
+    pdf.ln(10)
+
+    # Introduction
+    pdf.set_font("Arial", '', 12)
+    pdf.multi_cell(0, 10, "Este relatório apresenta os resultados da varredura de rede realizada para identificar hosts, portas abertas, sistemas operacionais e vulnerabilidades. Abaixo, segue o resumo dos hosts encontrados e uma análise detalhada das vulnerabilidades identificadas.", 0, 'J')
+    pdf.ln(10)
+
+    # Tabela de Níveis de Criticidade
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Níveis de Criticidade das Vulnerabilidades", 0, 1, 'L')
+    pdf.set_font("Arial", 'B', 10)
+    pdf.set_fill_color(0, 0, 0)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(60, 10, "Nível", 1, 0, 'C', fill=True)
+    pdf.cell(130, 10, "Score CVSS", 1, 0, 'C', fill=True)
+    pdf.ln()
+    pdf.set_font("Arial", 'B', 10)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(60, 10, "Crítico", 1)
+    pdf.set_fill_color(255, 0, 0)  # Red
+    pdf.cell(130, 10, "9.0 - 10.0", 1, 0, 'C', fill=True)
+    pdf.ln()
+    pdf.cell(60, 10, "Alto", 1)
+    pdf.set_fill_color(255, 255, 0)  # Yellow
+    pdf.cell(130, 10, "7.0 - 8.9", 1, 0, 'C', fill=True)
+    pdf.ln()
+    pdf.cell(60, 10, "Médio", 1)
+    pdf.set_fill_color(0, 255, 0)  # Green
+    pdf.cell(130, 10, "4.0 - 6.9", 1, 0, 'C', fill=True)
+    pdf.ln()
+    pdf.cell(60, 10, "Baixo", 1)
+    pdf.set_fill_color(0, 0, 255)  # Blue
+    pdf.cell(130, 10, "0.0 - 3.9", 1, 0, 'C', fill=True)
+    pdf.ln(10)
+
+    # Summary Table
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Sumário de Hosts e Vulnerabilidades", 0, 1, 'L')
+
+    pdf.set_font("Arial", 'B', 10)
+    pdf.set_fill_color(0, 0, 0)
+    pdf.set_text_color(255, 255, 255)
+    table_width = 190  # Adjust the table width to match the page margins (210 mm - 2 * 10 mm)
+    column_width = table_width / 7
+
+    pdf.cell(column_width, 10, "Endereço IP", 1, 0, 'C', fill=True)
+    pdf.cell(column_width, 10, "Hostname", 1, 0, 'C', fill=True)
+    pdf.cell(column_width, 10, "Crítico", 1, 0, 'C', fill=True)
+    pdf.cell(column_width, 10, "Alto", 1, 0, 'C', fill=True)
+    pdf.cell(column_width, 10, "Médio", 1, 0, 'C', fill=True)
+    pdf.cell(column_width, 10, "Baixo", 1, 0, 'C', fill=True)
+    pdf.cell(column_width, 10, "Total", 1, 0, 'C', fill=True)
+    pdf.ln()
+    pdf.set_text_color(0, 0, 0)
+
+    pdf.set_font("Arial", 'B', 10)
+    host_vuln_counts = {client['ip']: {'Crítico': 0, 'Alto': 0, 'Médio': 0, 'Baixo': 0, 'Total': 0} for client in clients}
+
+    for client in clients:
+        ip = client['ip']
+        hostname = client.get('hostname', 'N/A')
+        critical = host_vuln_counts[ip]['Crítico']
+        high = host_vuln_counts[ip]['Alto']
+        medium = host_vuln_counts[ip]['Médio']
+        low = host_vuln_counts[ip]['Baixo']
+        total = host_vuln_counts[ip]['Total']
+
+        pdf.cell(column_width, 10, ip, 1, 0, 'C')
+        pdf.cell(column_width, 10, hostname, 1, 0, 'C')
+        pdf.cell(column_width, 10, str(critical), 1, 0, 'C')
+        pdf.cell(column_width, 10, str(high), 1, 0, 'C')
+        pdf.cell(column_width, 10, str(medium), 1, 0, 'C')
+        pdf.cell(column_width, 10, str(low), 1, 0, 'C')
+        pdf.cell(column_width, 10, str(total), 1, 0, 'C')
+        pdf.ln()
+
+    # Detailed Analysis
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Análise Detalhada de Vulnerabilidades", 0, 1, 'L')
+    pdf.ln(5)
+
+    for client in clients:
+        ip = client['ip']
+        hostname = client.get('hostname', 'N/A')
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 10, f"Host: {hostname} ({ip})", 0, 1, 'L')
+        pdf.set_font("Arial", '', 10)
+
+        if ip in vulnerabilities and vulnerabilities[ip]:
+            for port, vuln in vulnerabilities[ip].items():
+                pdf.cell(0, 10, f"Porta: {port}", 0, 1, 'L')
+                for script_id, output in vuln.items():
+                    pdf.multi_cell(0, 10, f"  {script_id}: {output}", 0, 'L')
+                pdf.ln(2)
+        else:
+            pdf.cell(0, 10, "Nenhuma vulnerabilidade encontrada.", 0, 1, 'L')
+        pdf.ln(5)
+
+    pdf.output("relatorio_scan_rede.pdf")
+    logging.info("Relatório PDF gerado com sucesso: relatorio_scan_rede.pdf")
+
+def main():
+    # Escolha da sede
+    print("SEDE")
+    print("1 - São Bernardo do Campo - SP")
+    print("2 - Colombo - PR")
+    sede_opcao = input("Escolha a sede (1 ou 2): ")
+    sede = "São Bernardo do Campo - SP" if sede_opcao == "1" else "Colombo - PR"
+
+    # Escolha da rede
+    print("REDE")
+    print("1 - REDE VERMELHA")
+    print("2 - REDE VERDE")
+    rede_opcao = input("Escolha a rede (1 ou 2): ")
+    rede = "REDE VERMELHA" if rede_opcao == "1" else "REDE VERDE"
+
+    # Faixa de IPs
+    ip_range = input("Digite a faixa de IPs para a varredura (exemplo: 192.168.1.0/24): ")
+    clients = scan_network(ip_range)
+
+    start_time = datetime.datetime.now()  # Tempo de início da execução
+
+    for client in tqdm(clients, desc="Verificando portas abertas e SO"):
+        ip = client['ip']
+        open_ports, os_info = get_open_ports_and_os(ip)
+        client['open_ports'] = open_ports
+        client['os_info'] = os_info
+
+    vulnerabilities = {}
+    for client in tqdm(clients, desc="Verificando vulnerabilidades"):
+        ip = client['ip']
+        client_vulns = scan_vulnerabilities(ip)
+        vulnerabilities[ip] = client_vulns
+
+    end_time = datetime.datetime.now()  # Tempo de fim da execução
+    execution_time = end_time - start_time  # Cálculo do tempo de execução
+    executor_name = input("Digite o nome da pessoa que executou o programa: ")
+
+    generate_pdf_report(clients, vulnerabilities, sede, rede, ip_range, execution_time, executor_name)
+    logging.info("Varredura de rede concluída com sucesso.")
+
+if __name__ == "__main__":
+    main()
