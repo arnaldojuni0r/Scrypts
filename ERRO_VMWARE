@@ -14,7 +14,7 @@ sudo /etc/init.d/vmware start
 Please make sure that the kernel module `vmmon' is loaded.
 
 vmware-modconfig --console --install-all
-openssl req -new -x509 -newkey rsa:2048 -keyout VMWARE15.priv -outform DER -out VMWARE17.der -nodes -days 36500 -subj "/CN=VMWARE/"
+openssl req -new -x509 -newkey rsa:2048 -keyout VMWARE17.priv -outform DER -out VMWARE17.der -nodes -days 36500 -subj "/CN=VMWARE/"
 /usr/src/linux-headers-$(uname -r)/scripts/sign-file sha256 ./VMWARE17.priv ./VMWARE17.der $(modinfo -n vmmon)
 /usr/src/linux-headers-$(uname -r)/scripts/sign-file sha256 ./VMWARE17.priv ./VMWARE17.der $(modinfo -n vmnet)
 tail $(modinfo -n vmmon) | grep "Module signature appended"
