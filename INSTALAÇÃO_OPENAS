@@ -1,0 +1,23 @@
+1. Atualize o Sistema
+  sudo apt update && sudo apt upgrade -y
+
+2. Instale o OpenVAS
+  sudo apt install openvas -y
+
+3. Configure e Inicie o OpenVAS
+  sudo gvm-setup
+4. Verifique o Status dos Serviços
+  sudo gvm-check-setup
+  
+5. Acesse a Interface Web
+  https://localhost:9392
+
+6. Login na Interface Web
+  sudo gvmd --user=admin --new-password=yournewpassword
+
+7. Atualizar os Feeds de Vulnerabilidades
+  sudo greenbone-nvt-sync
+  sudo greenbone-scapdata-sync
+  sudo greenbone-certdata-sync
+
+
