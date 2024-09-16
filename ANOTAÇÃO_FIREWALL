@@ -1,0 +1,47 @@
+comandos CLI Firewall Fortigate
+
+
+\\Modo de configuração
+config system interface
+
+\\Ver todas configurações
+show full-configuration
+
+\\Editar porta
+edit <port>
+
+\\Defnir IP
+set ip <ip> <mask>
+end
+
+\\ mostrar interface da porta em questão
+show system interface <port>
+
+\\apresentar as portas
+get system interface physical
+
+\\Reiniciar o sistema
+execute reboot
+
+config system interface
+edit port1
+set ip 192.168.1.1 255.255.255.0
+set allowaccess ping https ssh
+set description "Interface de rede principal"
+set alias "Porta para Rede Interna"
+end
+
+
+
+######################################################################################################################################################################################
+FORTIGATE             172.16.100.254
+WINDOWS 10            172.16.100.1
+WINDOWS SERVER 2012   172.16.100.2
+WINDOWS XP            172.16.100.3
+KALI LINUX            172.16.100.4
+UBUNTU                 dhcp
+METASPLOITABLE 2
+OWASP
+GNS3
+
+######################################################################################################################################################################################
